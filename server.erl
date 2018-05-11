@@ -1,11 +1,16 @@
 -module(server).
 -compile(export_all).
--import(loginmanager,[start/0]).
+-import(loginmanager,[start/0, logged/1]).
+-import(state,[]).
+
 
 server(Port) -> 
-	loginmanager:start(),
+	spawn(fun() -> start() end), %inicia o loginmanager
+	state:start(), %inicia o state
+	Command = spawn(fun() -> commands() end),
 	Room = spawn(fun() -> room([]) end),
 	{ok,LSock} = gen_tcp:listen(Port,[binary, {packet, line}, {reuseaddr, true}]),
+	register(?MODULE,Command),
 	acceptor(LSock,Room).
 
 acceptor(LSock,Room) ->
@@ -13,24 +18,25 @@ acceptor(LSock,Room) ->
 	spawn(fun() -> acceptor(LSock,Room) end),
 	user(Sock,Room).
 
-room(Pids) ->
+room(Sockets) ->
     receive
-        {enter, Pid} ->
-            io:format("user entered~n", []),
-            room([Pid | Pids]);
+        {enter, Socket} ->
+            io:format("user entered ~p ~n", [Socket]),
+            room([Socket | Sockets]);
         {line, Data,Socket} ->
             io:format("received ~p~n", [Data]),
-            [Pid ! {line,Data} || Pid <- Pids],
-            room(Pids);
-        {leave, Pid} ->
+            %[Pid ! {line,Data} || Pid <- Pids],
+            room(Sockets);
+        {leave, Socket} ->
             io:format("user left~n", []),
-            room(Pids -- [Pid])
+            room(Sockets -- [Socket])
     end.
 
 user(Sock, Room) ->
     receive
         {line, Data} ->
-            gen_tcp:send(Sock, Data);
+            gen_tcp:send(Sock, Data),
+            user(Sock,Room);
 
         {tcp, Socket, Data} ->
             StrData = binary:bin_to_list(Data),
@@ -38,9 +44,11 @@ user(Sock, Room) ->
              "\\login " ++ Dados ->
              St = string:tokens(Dados, " "),
              [U | P] = St,
-             case loginmanager:login(U, P) of
-              ok -> gen_tcp:send(Socket,<<"ok_login\n">>),
-              		Room ! {enter,self()},
+             case loginmanager:login(U, P, Socket) of
+              {ok,N} -> gen_tcp:send(Socket,<<"ok_login\n">>),
+              		Room ! {enter,Socket},
+              		?MODULE ! {Socket,U},
+              		?MODULE ! {online,add,U},
               		userauthenticated(Sock, Room);
               _ -> gen_tcp:send(Socket,<<"invalid_login\n">>)
               end;
@@ -48,9 +56,11 @@ user(Sock, Room) ->
           
           "\\create_account " ++ Dados ->
             St = string:tokens(Dados, " "),
+            %debug -------
+            io:format("St: ~p ~n",[St]),
             [U | P] = St,
-            case loginmanager:create_account(U, P) of
-              ok -> gen_tcp:send(Socket,<<"ok_create_account\n">>);
+            case loginmanager:create_account(U, P, Socket) of
+              {ok,N} -> gen_tcp:send(Socket,<<"ok_create_account\n">>);
               _ -> gen_tcp:send(Socket,<<"user_exists\n">>)
             end;
 
@@ -77,14 +87,28 @@ user(Sock, Room) ->
           	"\\logout " ++ Dados ->
             St = string:tokens(Dados, " "),
             [U | P] = St,
-            case loginmanager:logout(U, P) of
+            case loginmanager:logout(U, P, Socket) of
             	ok -> gen_tcp:send(Socket,<<"ok_logout\n">>),
-            		  Room ! {leave,self()}, user(Sock,Room);
+            		  Room ! {leave,Sock}, user(Sock,Room);
             	_ -> userauthenticated(Sock,Room)
             end;
 
+            "\\left\n" ->
+            	Username = logged(Socket),
+              io:format("Fez left ~n"),
+            	?MODULE ! {left,Username},
+            	Room ! {line,Data,Socket},
+            	userauthenticated(Sock,Room);
+
+            "\\right\n" ->
+              Username = logged(Socket),
+              io:format("Fez right ~n"),
+              ?MODULE ! {right,Username},
+              Room ! {line,Data,Socket},
+              userauthenticated(Sock,Room);
+
             _ ->
-        	Room ! {line, Data,Socket},
+        	%Room ! {line, Data,Socket}, não é necessário?
         	userauthenticated(Sock, Room)
         end;
         {tcp_closed, _} ->
@@ -92,4 +116,24 @@ user(Sock, Room) ->
         {tcp_error, _, _} ->
             Room ! {leave, self()}
     end.
+
+   	commands() ->
+   		receive
+   			{online,add,Username} ->
+        io:format("Entrei no commands: add ~p ~n", [Username]),
+   			state ! {online,add,Username},
+   				commands();
+   			{left,Username} ->
+        io:format("Entrei no commands: left ~p ~n", [Username]),
+   				state ! {left,Username},
+   				commands();
+        {right,Username} ->
+        io:format("Entrei no commands: right ~p ~n", [Username]),
+          state ! {right,Username},
+          commands();
+   			{Socket,U} ->
+        io:format("Entrei no commands: Socket ~p, Username ~p ~n", [Socket,U]),
+   				state ! {time,Socket,U},
+   				commands()
+   		end.
 
