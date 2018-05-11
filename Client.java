@@ -39,7 +39,17 @@ public class Client {
         e.printStackTrace();
       }
     }
-      
+     
+      public void sendMessage(String message){
+        try{
+            PrintWriter out = new PrintWriter(sock.getOutputStream());
+            out.println(message);
+            out.flush();
+        }catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
       public Socket getSocket() {
         return sock;
     }

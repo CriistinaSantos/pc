@@ -25,10 +25,13 @@ int state = start_window;
 
 //CLIENT, SOCKET, DATA
 Client c = null;
+Message m = null;
+Status st = null;
 String user,pass;
 BufferedReader in = null;
 
-Avatar av = new Avatar(50,50,4);
+//Avatar av = new Avatar(50,50,4);
+float x,y,w,h;
  
 void setup() {
   size(1024, 700, P3D);
@@ -70,6 +73,7 @@ void setup() {
           try {
             c.connect();
             in = new BufferedReader(new InputStreamReader(c.getSocket().getInputStream()));
+            st = new Status();
             state = login_window;
           }
           catch(Exception e){
@@ -92,7 +96,10 @@ void setup() {
       c.login(user,pass);
         try{
         String s = in.readLine();
+        System.out.println("Login: "+s);
         if(s.equals("ok_login")){
+          m = new Message(in,st);
+          m.start();
           System.out.println("logged in!");
           cp5.hide();
           state = game_window;
@@ -116,13 +123,16 @@ void setup() {
      .setSize(200,28)
      .setFont(font)
      .onPress(new CallbackListener() {  public void controlEvent(CallbackEvent theEvent) {
-      System.out.println("create account!");
+      //System.out.println("create account!");
       String user = cp5.get(Textfield.class,"USERNAME").getText();
       String pass = cp5.get(Textfield.class,"PASSWORD").getText();
       c.create_account(user,pass);
       try{
         String s = in.readLine();
+        System.out.println("Create Avatar: "+s);
         if(s.equals("ok_create_account")){
+         // m = new Message(in,st);
+         // m.start();
           System.out.println("account created!");
           //cp5.hide();
           state = login_window;
@@ -209,27 +219,58 @@ void showGame(){
   cp5.getController("PASSWORD").hide();
   cp5.getController("START").hide();
   
-  av.DesenharAvatar();
+  //av.DesenharAvatar();
+  background(255, 255, 255);
+  String[] names = st.getNames();
+  double[][] elem = st.playerAtributes();
   
+  color playerOne = color(230,60,0);
+  color playerTwo = color(60,180,20);
+  
+  for(int i=0; i<elem.length;i++){
+    x= (float) elem[i][0];
+    y= (float) elem[i][1];
+    
+    pushMatrix();
+    translate(x,y);
+    rotate(radians((float)elem[i][4])); //dir
+    //line(0,0,50,0);
+    if(i==0){
+    fill(playerOne);
+    ellipse(0,0,(float)elem[0][2],(float)elem[0][3]);
+    rect(0,0,25,25);
+    //triangle(x+27,y-4,x+27,y+4,x+35,y+2);
+    }
+    if(i==1){
+    fill(playerTwo);
+    ellipse(0,0,(float)elem[1][2],(float)elem[1][3]);
+    }
+    popMatrix();
+  }
 }
 
 void keyPressed() {
   //enviar("keyPress",Integer.toString(keyCode));
   if(state==game_window){
   if (keyCode == LEFT) {
-    av.leftBoolean = true;
-    //chamar metodo de mandar mensagem do cliente (class cliente)
+    //av.leftBoolean = true;
+    System.out.println("Keypressed: left");
+    c.sendMessage("\\left");
+    
   }
   if (keyCode == RIGHT) {
-    av.rightBoolean = true;
+    //av.rightBoolean = true;
+    c.sendMessage("\\right");
   }
   if (keyCode == UP) {
-    av.speedBoolean = true;
+    //av.speedBoolean = true;
+    c.sendMessage("\\up");
   }
   }
 }
 
-void keyReleased() {
+//Movimento contínuo
+/*void keyReleased() {
   //enviar("keyReleased",Integer.toString(keyCode));
   if(state==game_window){
   if (keyCode == LEFT) {
@@ -242,7 +283,7 @@ void keyReleased() {
     av.speedBoolean = false;
   }
  }
-}
+}*/
   
   
 void showLoading() {
